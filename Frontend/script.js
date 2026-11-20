@@ -1,5 +1,21 @@
-const API_URL = "http://127.0.0.1:8000";
+// =========================================================
+// CONFIGURATION
+// =========================================================
 
+// Replace this with your Render FastAPI URL.
+//
+// Example:
+// const API_URL = "https://mrsptu-downloader-api.onrender.com";
+
+const API_URL = "https://YOUR-RENDER-BACKEND.onrender.com";
+
+
+// =========================================================
+// ELEMENTS
+// =========================================================
+
+const subjectsInput =
+    document.getElementById("subjects");
 
 const downloadBtn =
     document.getElementById("downloadBtn");
@@ -7,202 +23,243 @@ const downloadBtn =
 const themeBtn =
     document.getElementById("themeBtn");
 
-const subjectsInput =
-    document.getElementById("subjects");
-
 const terminal =
     document.getElementById("terminal");
-
-const logs =
-    document.getElementById("logs");
-
-const percentage =
-    document.getElementById("percentage");
 
 const progressFill =
     document.getElementById("progressFill");
 
-const eta =
+const progressPercent =
+    document.getElementById("progressPercent");
+
+const etaElement =
     document.getElementById("eta");
 
-const elapsed =
+const elapsedElement =
     document.getElementById("elapsed");
 
-const terminalStatus =
-    document.getElementById("terminalStatus");
-
-const status =
+const statusElement =
     document.getElementById("status");
 
+const statusText =
+    document.getElementById("statusText");
 
-// ============================================================
-// DARK / LIGHT MODE
-// ============================================================
+
+// =========================================================
+// THEME
+// =========================================================
+
+function applyTheme(theme) {
+
+    if (theme === "dark") {
+
+        document.body.classList.add("dark");
+
+        themeBtn.textContent = "☀️";
+
+    } else {
+
+        document.body.classList.remove("dark");
+
+        themeBtn.textContent = "🌙";
+    }
+}
+
+
+const savedTheme =
+    localStorage.getItem("mrsptu-theme") || "light";
+
+applyTheme(savedTheme);
+
 
 themeBtn.onclick = () => {
-
-    document.body.classList.toggle("dark");
 
     const dark =
         document.body.classList.contains("dark");
 
-    themeBtn.textContent =
-        dark ? "🌙" : "☀️";
+    const newTheme =
+        dark ? "light" : "dark";
+
+    applyTheme(newTheme);
 
     localStorage.setItem(
         "mrsptu-theme",
-        dark ? "dark" : "light"
+        newTheme
     );
 };
 
 
-// Restore theme
+// =========================================================
+// TERMINAL
+// =========================================================
 
-if (
-    localStorage.getItem("mrsptu-theme")
-    === "dark"
-) {
-
-    document.body.classList.add("dark");
-
-    themeBtn.textContent = "🌙";
-
-}
-
-
-// ============================================================
-// ADD TERMINAL LOG
-// ============================================================
-
-function addLog(message) {
+function addTerminalLine(message) {
 
     const line =
         document.createElement("div");
 
-    line.className = "log-line";
+    line.className =
+        "terminal-line";
 
-    line.textContent =
-        "> " + message;
+    line.innerHTML = `
+        <span class="terminal-prompt">&gt;</span>
+        <span>${escapeHtml(message)}</span>
+    `;
 
-    logs.appendChild(line);
+    terminal.appendChild(line);
 
-    logs.scrollTop =
-        logs.scrollHeight;
+    terminal.scrollTop =
+        terminal.scrollHeight;
 }
 
 
-// ============================================================
-// FORMAT ELAPSED TIME
-// ============================================================
+function clearTerminal() {
 
-function formatElapsed(seconds) {
+    terminal.innerHTML = "";
+}
+
+
+function escapeHtml(text) {
+
+    const div =
+        document.createElement("div");
+
+    div.textContent = text;
+
+    return div.innerHTML;
+}
+
+
+// =========================================================
+// TIME FORMAT
+// =========================================================
+
+function formatSeconds(seconds) {
+
+    if (
+        seconds === null ||
+        seconds === undefined ||
+        isNaN(seconds)
+    ) {
+        return "--:--";
+    }
 
     seconds =
-        Math.floor(seconds);
+        Math.max(0, Math.floor(seconds));
 
     const minutes =
         Math.floor(seconds / 60);
 
-    const secs =
+    const remaining =
         seconds % 60;
 
     return (
-        String(minutes).padStart(2, "0")
-        + ":"
-        + String(secs).padStart(2, "0")
+        String(minutes).padStart(2, "0") +
+        ":" +
+        String(remaining).padStart(2, "0")
     );
 }
 
 
-// ============================================================
+// =========================================================
 // DOWNLOAD
-// ============================================================
+// =========================================================
 
 downloadBtn.onclick = async () => {
 
     const text =
-        subjectsInput.value;
+        subjectsInput.value.trim();
+
 
     const subjects =
         text
-            .split("\n")
-            .map(x => x.trim().toUpperCase())
+            .split(/\r?\n/)
+            .map(x => x.trim())
             .filter(x => x);
 
 
+    // -----------------------------------------------------
+    // VALIDATION
+    // -----------------------------------------------------
+
     if (subjects.length === 0) {
 
-        status.textContent =
+        statusElement.textContent =
             "Enter at least one subject code.";
+
+        statusText.textContent =
+            "Error";
 
         return;
     }
 
 
-    // Reset UI
+    // -----------------------------------------------------
+    // RESET UI
+    // -----------------------------------------------------
 
-    terminal.classList.remove("hidden");
-
-    logs.innerHTML = "";
-
-    percentage.textContent = "0%";
+    clearTerminal();
 
     progressFill.style.width = "0%";
 
-    eta.textContent = "ETA: --:--";
+    progressPercent.textContent =
+        "0%";
 
-    elapsed.textContent =
-        "Elapsed: 00:00";
+    etaElement.textContent =
+        "ETA: --:--";
 
-    terminalStatus.textContent =
-        "Starting...";
+    elapsedElement.textContent =
+        "00:00";
 
-    status.textContent = "";
+    statusElement.textContent =
+        "Starting";
+
+    statusText.textContent =
+        "Starting";
 
     downloadBtn.disabled = true;
 
 
-    const startTime =
-        Date.now();
+    addTerminalLine(
+        `Starting download for ${subjects.length} subject(s)...`
+    );
+
+
+    let jobId = null;
+
+    let pollInterval = null;
 
 
     try {
 
-        // ====================================================
+        // =================================================
         // START JOB
-        // ====================================================
-
-        addLog(
-            `Starting download for ${subjects.length} subject(s)...`
-        );
-
+        // =================================================
 
         const response =
-            await fetch(
-                `${API_URL}/download`,
-                {
-                    method: "POST",
+            await fetch(`${API_URL}/download`, {
 
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
+                method: "POST",
 
-                    body: JSON.stringify({
-                        subjects: subjects
-                    })
-                }
-            );
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body: JSON.stringify({
+                    subjects: subjects
+                })
+            });
 
 
         if (!response.ok) {
 
-            const error =
-                await response.json();
+            const errorText =
+                await response.text();
 
             throw new Error(
-                error.detail ||
-                "Could not start download."
+                errorText ||
+                `Server returned ${response.status}`
             );
         }
 
@@ -210,137 +267,214 @@ downloadBtn.onclick = async () => {
         const data =
             await response.json();
 
-        const jobId =
+
+        jobId =
             data.job_id;
 
 
-        addLog(
-            `Job started: ${jobId.substring(0, 8)}`
+        if (!jobId) {
+
+            throw new Error(
+                "Server did not return a job ID."
+            );
+        }
+
+
+        addTerminalLine(
+            `Job started: ${jobId}`
         );
 
 
-        // ====================================================
-        // CHECK STATUS
-        // ====================================================
+        statusElement.textContent =
+            "Downloading";
 
-        while (true) {
+        statusText.textContent =
+            "Running";
 
-            await new Promise(
-                resolve =>
-                    setTimeout(resolve, 1000)
+
+        // =================================================
+        // POLL STATUS
+        // =================================================
+
+        pollInterval =
+            setInterval(
+                () => checkStatus(jobId),
+                1000
             );
 
 
-            const statusResponse =
+        // Immediately check once
+        await checkStatus(jobId);
+
+
+    } catch (error) {
+
+        console.error(error);
+
+        addTerminalLine(
+            `ERROR: ${error.message}`
+        );
+
+        statusElement.textContent =
+            "Error";
+
+        statusText.textContent =
+            "Error";
+
+        downloadBtn.disabled = false;
+
+
+        if (pollInterval) {
+
+            clearInterval(
+                pollInterval
+            );
+        }
+    }
+
+
+    // =====================================================
+    // STATUS CHECK
+    // =====================================================
+
+    async function checkStatus(id) {
+
+        try {
+
+            const response =
                 await fetch(
-                    `${API_URL}/status/${jobId}`
+                    `${API_URL}/status/${id}`
                 );
 
 
-            if (!statusResponse.ok) {
+            if (!response.ok) {
 
                 throw new Error(
-                    "Could not read download status."
+                    `Status request failed: ${response.status}`
                 );
             }
 
 
-            const job =
-                await statusResponse.json();
+            const data =
+                await response.json();
 
 
-            // Progress
+            // ------------------------------------------------
+            // PROGRESS
+            // ------------------------------------------------
 
             const progress =
-                job.progress || 0;
+                Number(data.progress || 0);
 
-            percentage.textContent =
-                `${progress}%`;
 
             progressFill.style.width =
                 `${progress}%`;
 
 
+            progressPercent.textContent =
+                `${Math.round(progress)}%`;
+
+
+            // ------------------------------------------------
             // ETA
-
-            eta.textContent =
-                `ETA: ${job.eta || "--:--"}`;
-
-
-            // Elapsed
-
-            const seconds =
-                (Date.now() - startTime)
-                / 1000;
-
-            elapsed.textContent =
-                `Elapsed: ${formatElapsed(seconds)}`;
-
-
-            // Terminal status
-
-            terminalStatus.textContent =
-                job.status;
-
-
-            // Add meaningful new log
+            // ------------------------------------------------
 
             if (
-                job.message &&
-                job.message !==
-                window.lastDownloaderMessage
+                data.eta !== null &&
+                data.eta !== undefined
             ) {
 
-                addLog(job.message);
+                etaElement.textContent =
+                    `ETA: ${formatSeconds(data.eta)}`;
 
-                window.lastDownloaderMessage =
-                    job.message;
+            } else {
+
+                etaElement.textContent =
+                    "ETA: calculating...";
             }
 
 
-            // =================================================
-            // COMPLETE
-            // =================================================
+            // ------------------------------------------------
+            // ELAPSED
+            // ------------------------------------------------
 
             if (
-                job.status ===
-                "completed"
+                data.elapsed !== null &&
+                data.elapsed !== undefined
             ) {
 
-                percentage.textContent =
-                    "100%";
+                elapsedElement.textContent =
+                    formatSeconds(data.elapsed);
+            }
+
+
+            // ------------------------------------------------
+            // STATUS
+            // ------------------------------------------------
+
+            if (data.message) {
+
+                addTerminalLine(
+                    data.message
+                );
+            }
+
+
+            // ------------------------------------------------
+            // COMPLETED
+            // ------------------------------------------------
+
+            if (
+                data.status === "completed"
+            ) {
+
+                clearInterval(
+                    pollInterval
+                );
+
 
                 progressFill.style.width =
                     "100%";
 
-                eta.textContent =
+                progressPercent.textContent =
+                    "100%";
+
+                etaElement.textContent =
                     "ETA: 00:00";
 
-                terminalStatus.textContent =
-                    "Completed";
+
+                statusElement.textContent =
+                    "Complete";
+
+                statusText.textContent =
+                    "Complete";
 
 
-                addLog(
-                    "ZIP is ready. Starting download..."
+                addTerminalLine(
+                    "Download completed."
                 );
 
 
-                const zipResponse =
+                // ---------------------------------------------
+                // DOWNLOAD ZIP
+                // ---------------------------------------------
+
+                const fileResponse =
                     await fetch(
-                        `${API_URL}/download/${jobId}`
+                        `${API_URL}/download/${id}`
                     );
 
 
-                if (!zipResponse.ok) {
+                if (!fileResponse.ok) {
 
                     throw new Error(
-                        "ZIP download failed."
+                        "Could not retrieve ZIP file."
                     );
                 }
 
 
                 const blob =
-                    await zipResponse.blob();
+                    await fileResponse.blob();
 
 
                 const url =
@@ -349,64 +483,98 @@ downloadBtn.onclick = async () => {
                     );
 
 
-                const a =
+                const link =
                     document.createElement("a");
 
-                a.href = url;
 
-                a.download =
+                link.href = url;
+
+                link.download =
                     "MRSPTU_Question_Papers.zip";
 
-                document.body.appendChild(a);
 
-                a.click();
-
-                a.remove();
-
-                window.URL.revokeObjectURL(url);
+                document.body.appendChild(
+                    link
+                );
 
 
-                status.textContent =
-                    "Download complete.";
+                link.click();
 
-                break;
+
+                link.remove();
+
+
+                window.URL.revokeObjectURL(
+                    url
+                );
+
+
+                addTerminalLine(
+                    "ZIP file downloaded."
+                );
+
+
+                downloadBtn.disabled =
+                    false;
             }
 
 
-            // =================================================
-            // ERROR
-            // =================================================
+            // ------------------------------------------------
+            // FAILED
+            // ------------------------------------------------
 
             if (
-                job.status ===
-                "error"
+                data.status === "failed"
             ) {
 
-                throw new Error(
-                    job.error ||
-                    "Downloader failed."
+                clearInterval(
+                    pollInterval
                 );
+
+
+                statusElement.textContent =
+                    "Failed";
+
+                statusText.textContent =
+                    "Failed";
+
+
+                addTerminalLine(
+                    data.error ||
+                    "Download failed."
+                );
+
+
+                downloadBtn.disabled =
+                    false;
             }
 
+        } catch (error) {
+
+            console.error(
+                "Status error:",
+                error
+            );
+
+            clearInterval(
+                pollInterval
+            );
+
+
+            statusElement.textContent =
+                "Error";
+
+            statusText.textContent =
+                "Error";
+
+
+            addTerminalLine(
+                `ERROR: ${error.message}`
+            );
+
+
+            downloadBtn.disabled =
+                false;
         }
-
-    } catch (error) {
-
-        addLog(
-            `ERROR: ${error.message}`
-        );
-
-        terminalStatus.textContent =
-            "Error";
-
-        status.textContent =
-            error.message;
-
-    } finally {
-
-        downloadBtn.disabled =
-            false;
-
     }
-
 };

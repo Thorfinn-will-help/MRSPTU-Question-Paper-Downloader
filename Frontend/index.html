@@ -2,7 +2,6 @@
 <html lang="en">
 
 <head>
-
     <meta charset="UTF-8">
 
     <meta
@@ -13,90 +12,252 @@
     <title>MRSPTU Question Paper Downloader</title>
 
     <link rel="stylesheet" href="style.css">
-
 </head>
-
 
 <body>
 
-<div class="page">
+    <!-- =====================================================
+         HEADER
+    ====================================================== -->
 
-    <div class="topbar">
+    <header class="topbar">
 
-        <div>
-            <h1>MRSPTU Question Paper Downloader</h1>
+        <div class="brand">
+            <span class="brand-icon">📚</span>
 
-            <p class="subtitle">
-                Search and download previous-year question papers
-            </p>
+            <div>
+                <h1>MRSPTU Question Paper Downloader</h1>
+                <p>Download question papers by subject code</p>
+            </div>
         </div>
 
         <button
             id="themeBtn"
             class="theme-btn"
-            title="Change theme"
+            type="button"
+            aria-label="Toggle dark mode"
         >
             ☀️
         </button>
 
-    </div>
+    </header>
 
 
-    <div class="card">
+    <!-- =====================================================
+         MAIN CONTENT
+    ====================================================== -->
 
-        <label for="subjects">
-            Subject Codes
-        </label>
+    <main class="container">
 
-        <p class="hint">
-            Enter one subject code per line.
-        </p>
+        <!-- =================================================
+             SUBJECT INPUT
+        ================================================== -->
 
-        <textarea
-            id="subjects"
-            placeholder="BMECS1501
+        <section class="card">
+
+            <div class="section-header">
+
+                <div>
+                    <h2>Subject Codes</h2>
+
+                    <p>
+                        Enter one MRSPTU subject code per line.
+                    </p>
+                </div>
+
+            </div>
+
+
+            <textarea
+                id="subjects"
+                placeholder="BMECS1501
 BMECS1502
 BMECS1503"
-        ></textarea>
+                spellcheck="false"
+            ></textarea>
 
 
-        <button
-            id="downloadBtn"
-            class="download-btn"
-        >
-            Download Papers
-        </button>
+            <div class="input-footer">
+
+                <span class="input-hint">
+                    Spaces and hyphens are automatically ignored.
+                </span>
+
+                <button
+                    id="downloadBtn"
+                    class="download-btn"
+                    type="button"
+                >
+                    Download Papers
+                </button>
+
+            </div>
+
+        </section>
 
 
-        <!-- TERMINAL -->
+        <!-- =================================================
+             APPROXIMATE PROCESSING TIME
+        ================================================== -->
 
-        <div
-            id="terminal"
-            class="terminal hidden"
-        >
+        <section class="card processing-card">
+
+            <div class="section-header">
+
+                <div>
+
+                    <h2>⏱️ Approximate processing time</h2>
+
+                    <p>
+                        The more papers requested, the longer the
+                        download will take.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <div class="table-wrapper">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+                            <th>Request</th>
+                            <th>Example</th>
+                            <th>Approx. time</th>
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody>
+
+                        <tr>
+
+                            <td>
+                                <span class="request-badge small">
+                                    Small
+                                </span>
+                            </td>
+
+                            <td>
+                                1 subject / ~7 papers
+                            </td>
+
+                            <td>
+                                ~30 sec
+                            </td>
+
+                        </tr>
+
+
+                        <tr>
+
+                            <td>
+                                <span class="request-badge medium">
+                                    Medium
+                                </span>
+                            </td>
+
+                            <td>
+                                3–5 subjects
+                            </td>
+
+                            <td>
+                                ~1–2 min
+                            </td>
+
+                        </tr>
+
+
+                        <tr>
+
+                            <td>
+                                <span class="request-badge large">
+                                    Large
+                                </span>
+                            </td>
+
+                            <td>
+                                9 subjects / ~53 papers
+                            </td>
+
+                            <td>
+                                ~3.5 min
+                            </td>
+
+                        </tr>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+
+            <p class="processing-note">
+                Times are approximate and depend on the MRSPTU
+                server, network speed, and the number of papers found.
+            </p>
+
+
+            <!-- =================================================
+                 DISCLAIMER
+            ================================================== -->
+
+            <div class="disclaimer">
+
+                <strong>⚠️ Disclaimer</strong>
+
+                <p>
+                    This is an independent, student-developed tool
+                    and is <strong>not made, maintained, endorsed,
+                    or officially affiliated with MRSPTU</strong>.
+                </p>
+
+            </div>
+
+        </section>
+
+
+        <!-- =================================================
+             DOWNLOAD TERMINAL
+        ================================================== -->
+
+        <section class="card terminal-card">
 
             <div class="terminal-header">
 
-                <span>● MRSPTU Downloader</span>
+                <div class="terminal-title">
 
-                <span id="terminalStatus">
-                    Starting...
+                    <span class="terminal-dot"></span>
+
+                    <span>
+                        Download Terminal
+                    </span>
+
+                </div>
+
+                <span
+                    id="statusText"
+                    class="status-idle"
+                >
+                    Ready
                 </span>
 
             </div>
 
 
-            <div
-                id="logs"
-                class="logs"
-            ></div>
-
+            <!-- PROGRESS -->
 
             <div class="progress-section">
 
                 <div class="progress-info">
 
-                    <span id="percentage">
+                    <span id="progressPercent">
                         0%
                     </span>
 
@@ -116,31 +277,101 @@ BMECS1503"
 
                 </div>
 
+            </div>
 
-                <div class="time-info">
 
-                    <span id="elapsed">
-                        Elapsed: 00:00
+            <!-- TERMINAL -->
+
+            <div
+                id="terminal"
+                class="terminal"
+            >
+
+                <div class="terminal-line">
+
+                    <span class="terminal-prompt">
+                        &gt;
+                    </span>
+
+                    <span>
+                        Ready. Enter subject codes and start downloading.
                     </span>
 
                 </div>
 
             </div>
 
-        </div>
+
+            <!-- DOWNLOAD INFORMATION -->
+
+            <div class="download-info">
+
+                <div>
+
+                    <span class="info-label">
+                        Elapsed
+                    </span>
+
+                    <span id="elapsed">
+                        00:00
+                    </span>
+
+                </div>
 
 
-        <div
-            id="status"
-            class="status"
-        ></div>
+                <div>
 
-    </div>
+                    <span class="info-label">
+                        Status
+                    </span>
 
-</div>
+                    <span id="status">
+                        Waiting
+                    </span>
+
+                </div>
+
+            </div>
+
+        </section>
 
 
-<script src="script.js"></script>
+        <!-- =================================================
+             INFORMATION
+        ================================================== -->
+
+        <section class="info-section">
+
+            <p>
+                <strong>Search order:</strong>
+                2024 → 2023 → 2022
+            </p>
+
+            <p>
+                The downloader searches the MRSPTU library for all
+                available question papers matching the supplied
+                subject codes.
+            </p>
+
+        </section>
+
+    </main>
+
+
+    <!-- =====================================================
+         FOOTER
+    ====================================================== -->
+
+    <footer>
+
+        <p>
+            MRSPTU Question Paper Downloader
+        </p>
+
+    </footer>
+
+
+    <script src="script.js"></script>
 
 </body>
 
