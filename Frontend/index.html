@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>MRSPTU Question Paper Downloader</title>
+
+    <link rel="stylesheet" href="style.css">
+
+</head>
+
+
+<body>
+
+<div class="page">
+
+    <div class="topbar">
+
+        <div>
+            <h1>MRSPTU Question Paper Downloader</h1>
+
+            <p class="subtitle">
+                Search and download previous-year question papers
+            </p>
+        </div>
+
+        <button
+            id="themeBtn"
+            class="theme-btn"
+            title="Change theme"
+        >
+            ☀️
+        </button>
+
+    </div>
+
+
+    <div class="card">
+
+        <label for="subjects">
+            Subject Codes
+        </label>
+
+        <p class="hint">
+            Enter one subject code per line.
+        </p>
+
+        <textarea
+            id="subjects"
+            placeholder="BMECS1501
+BMECS1502
+BMECS1503"
+        ></textarea>
+
+
+        <button
+            id="downloadBtn"
+            class="download-btn"
+        >
+            Download Papers
+        </button>
+
+
+        <!-- TERMINAL -->
+
+        <div
+            id="terminal"
+            class="terminal hidden"
+        >
+
+            <div class="terminal-header">
+
+                <span>● MRSPTU Downloader</span>
+
+                <span id="terminalStatus">
+                    Starting...
+                </span>
+
+            </div>
+
+
+            <div
+                id="logs"
+                class="logs"
+            ></div>
+
+
+            <div class="progress-section">
+
+                <div class="progress-info">
+
+                    <span id="percentage">
+                        0%
+                    </span>
+
+                    <span id="eta">
+                        ETA: --:--
+                    </span>
+
+                </div>
+
+
+                <div class="progress-bar">
+
+                    <div
+                        id="progressFill"
+                        class="progress-fill"
+                    ></div>
+
+                </div>
+
+
+                <div class="time-info">
+
+                    <span id="elapsed">
+                        Elapsed: 00:00
+                    </span>
+
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <div
+            id="status"
+            class="status"
+        ></div>
+
+    </div>
+
+</div>
+
+
+<script src="script.js"></script>
+
+</body>
+
+</html>
