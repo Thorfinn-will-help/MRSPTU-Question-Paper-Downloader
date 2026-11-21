@@ -30,6 +30,11 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Check Frontend
+        run: |
+          echo "Frontend contents:"
+          find ./Frontend -maxdepth 2 -type f -print
+
       - name: Upload frontend
         uses: actions/upload-pages-artifact@v3
         with:
