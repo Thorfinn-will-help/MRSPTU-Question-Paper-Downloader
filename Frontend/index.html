@@ -1,15 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>MRSPTU Question Paper Downloader</title>
+    <title>MRSPTU Question Paper Archive</title>
 
     <link rel="stylesheet" href="style.css">
 </head>
@@ -26,8 +21,8 @@
             <span class="brand-icon">📚</span>
 
             <div>
-                <h1>MRSPTU Question Paper Downloader</h1>
-                <p>Download question papers by subject code</p>
+                <h1>MRSPTU Question Paper Archive</h1>
+                <p>Search and download archived question papers</p>
             </div>
         </div>
 
@@ -36,37 +31,63 @@
             class="theme-btn"
             type="button"
             aria-label="Toggle dark mode"
+            title="Toggle dark mode"
         >
-            ☀️
+            ☾
         </button>
 
     </header>
 
 
     <!-- =====================================================
-         MAIN CONTENT
+         MAIN
     ====================================================== -->
 
     <main class="container">
 
         <!-- =================================================
-             SUBJECT INPUT
+             SEARCH
         ================================================== -->
 
-        <section class="card">
+        <section class="card search-card">
 
             <div class="section-header">
-
                 <div>
-                    <h2>Subject Codes</h2>
-
+                    <h2>Search Question Papers</h2>
                     <p>
-                        Enter one MRSPTU subject code per line.
+                        Search by subject code or Paper ID. Enter multiple
+                        values on separate lines.
                     </p>
                 </div>
+            </div>
+
+
+            <!-- SEARCH MODE -->
+
+            <div class="search-mode" role="tablist" aria-label="Search type">
+
+                <button
+                    id="subjectModeBtn"
+                    class="mode-btn active"
+                    type="button"
+                    data-mode="subject"
+                >
+                    Subject Code
+                </button>
+
+                <button
+                    id="paperIdModeBtn"
+                    class="mode-btn"
+                    type="button"
+                    data-mode="paper_id"
+                >
+                    Paper ID
+                </button>
 
             </div>
 
+
+            <!-- SEARCH INPUT -->
 
             <textarea
                 id="subjects"
@@ -74,21 +95,23 @@
 BMECS1502
 BMECS1503"
                 spellcheck="false"
+                aria-label="Search values"
             ></textarea>
 
 
             <div class="input-footer">
 
-                <span class="input-hint">
+                <span id="inputHint" class="input-hint">
+                    Enter one subject code per line.
                     Spaces and hyphens are automatically ignored.
                 </span>
 
                 <button
                     id="downloadBtn"
-                    class="download-btn"
+                    class="search-btn"
                     type="button"
                 >
-                    Download Papers
+                    Search Papers
                 </button>
 
             </div>
@@ -97,247 +120,149 @@ BMECS1503"
 
 
         <!-- =================================================
-             APPROXIMATE PROCESSING TIME
+             ARCHIVE COVERAGE
         ================================================== -->
 
-        <section class="card processing-card">
+        <section class="card archive-card">
 
             <div class="section-header">
+                <div>
+                    <h2>Archive Coverage</h2>
+                    <p>
+                        Current archive compared with the expected official
+                        paper count.
+                    </p>
+                </div>
+            </div>
+
+
+            <div class="coverage-main">
+
+                <div class="coverage-number">
+                    <strong>5,676</strong>
+                    <span>/ 5,967 papers</span>
+                </div>
+
+                <div class="coverage-percent">
+                    <strong>95.1%</strong>
+                    <span>coverage</span>
+                </div>
+
+            </div>
+
+
+            <div class="coverage-bar">
+                <div
+                    class="coverage-fill"
+                    style="width: 95.1%;"
+                ></div>
+            </div>
+
+
+            <div class="year-stats">
+
+                <div class="year-stat">
+                    <span>2022</span>
+                    <strong>1,604</strong>
+                    <small>papers</small>
+                </div>
+
+                <div class="year-stat">
+                    <span>2023</span>
+                    <strong>784</strong>
+                    <small>papers</small>
+                </div>
+
+                <div class="year-stat">
+                    <span>2024</span>
+                    <strong>3,288</strong>
+                    <small>papers</small>
+                </div>
+
+            </div>
+
+            <p class="coverage-note">
+                Coverage is based on the current archive count of 5,676
+                papers against the expected total of 5,967. This is archive
+                coverage, not a claim that every archived file has completed
+                content verification.
+            </p>
+
+        </section>
+
+
+        <!-- =================================================
+             STATUS
+        ================================================== -->
+
+        <section class="status-card">
+
+            <div class="status-left">
+                <span class="status-dot"></span>
 
                 <div>
+                    <strong id="statusText">Ready</strong>
+                    <span id="status">
+                        Enter a search above.
+                    </span>
+                </div>
+            </div>
 
-                    <h2>⏱️ Approximate processing time</h2>
+            <div class="status-right">
+                <span id="progressPercent">0%</span>
+                <span id="elapsed">00:00</span>
+            </div>
+
+        </section>
+
+
+        <!-- =================================================
+             SEARCH PROGRESS
+        ================================================== -->
+
+        <div class="progress-track">
+            <div
+                id="progressFill"
+                class="progress-fill"
+            ></div>
+        </div>
+
+        <div id="eta" class="sr-only">
+            ETA: --:--
+        </div>
+
+
+        <!-- =================================================
+             RESULTS
+        ================================================== -->
+
+        <section
+            id="resultsSection"
+            class="results-section"
+            aria-live="polite"
+        >
+
+            <div id="resultsContainer">
+
+                <div class="results-placeholder">
+
+                    <div class="placeholder-icon">⌕</div>
+
+                    <h2>Search the archive</h2>
 
                     <p>
-                        The more papers requested, the longer the
-                        download will take.
+                        Results will appear here, grouped by subject and year.
                     </p>
 
                 </div>
 
             </div>
 
-
-            <div class="table-wrapper">
-
-                <table>
-
-                    <thead>
-
-                        <tr>
-                            <th>Request</th>
-                            <th>Example</th>
-                            <th>Approx. time</th>
-                        </tr>
-
-                    </thead>
-
-
-                    <tbody>
-
-                        <tr>
-
-                            <td>
-                                <span class="request-badge small">
-                                    Small
-                                </span>
-                            </td>
-
-                            <td>
-                                1 subject / ~7 papers
-                            </td>
-
-                            <td>
-                                ~30 sec
-                            </td>
-
-                        </tr>
-
-
-                        <tr>
-
-                            <td>
-                                <span class="request-badge medium">
-                                    Medium
-                                </span>
-                            </td>
-
-                            <td>
-                                3–5 subjects
-                            </td>
-
-                            <td>
-                                ~1–2 min
-                            </td>
-
-                        </tr>
-
-
-                        <tr>
-
-                            <td>
-                                <span class="request-badge large">
-                                    Large
-                                </span>
-                            </td>
-
-                            <td>
-                                9 subjects / ~53 papers
-                            </td>
-
-                            <td>
-                                ~3.5 min
-                            </td>
-
-                        </tr>
-
-                    </tbody>
-
-                </table>
-
-            </div>
-
-
-            <p class="processing-note">
-                Times are approximate and depend on the MRSPTU
-                server, network speed, and the number of papers found.
-            </p>
-
-
-            <!-- =================================================
-                 DISCLAIMER
-            ================================================== -->
-
-            <div class="disclaimer">
-
-                <strong>⚠️ Disclaimer</strong>
-
-                <p>
-                    This is an independent, student-developed tool
-                    and is <strong>not made, maintained, endorsed,
-                    or officially affiliated with MRSPTU</strong>.
-                </p>
-
-            </div>
-
         </section>
 
 
         <!-- =================================================
-             DOWNLOAD TERMINAL
-        ================================================== -->
-
-        <section class="card terminal-card">
-
-            <div class="terminal-header">
-
-                <div class="terminal-title">
-
-                    <span class="terminal-dot"></span>
-
-                    <span>
-                        Download Terminal
-                    </span>
-
-                </div>
-
-                <span
-                    id="statusText"
-                    class="status-idle"
-                >
-                    Ready
-                </span>
-
-            </div>
-
-
-            <!-- PROGRESS -->
-
-            <div class="progress-section">
-
-                <div class="progress-info">
-
-                    <span id="progressPercent">
-                        0%
-                    </span>
-
-                    <span id="eta">
-                        ETA: --:--
-                    </span>
-
-                </div>
-
-
-                <div class="progress-bar">
-
-                    <div
-                        id="progressFill"
-                        class="progress-fill"
-                    ></div>
-
-                </div>
-
-            </div>
-
-
-            <!-- TERMINAL -->
-
-            <div
-                id="terminal"
-                class="terminal"
-            >
-
-                <div class="terminal-line">
-
-                    <span class="terminal-prompt">
-                        &gt;
-                    </span>
-
-                    <span>
-                        Ready. Enter subject codes and start downloading.
-                    </span>
-
-                </div>
-
-            </div>
-
-
-            <!-- DOWNLOAD INFORMATION -->
-
-            <div class="download-info">
-
-                <div>
-
-                    <span class="info-label">
-                        Elapsed
-                    </span>
-
-                    <span id="elapsed">
-                        00:00
-                    </span>
-
-                </div>
-
-
-                <div>
-
-                    <span class="info-label">
-                        Status
-                    </span>
-
-                    <span id="status">
-                        Waiting
-                    </span>
-
-                </div>
-
-            </div>
-
-        </section>
-
-
-        <!-- =================================================
-             INFORMATION
+             INFORMATION / DISCLAIMER
         ================================================== -->
 
         <section class="info-section">
@@ -348,10 +273,22 @@ BMECS1503"
             </p>
 
             <p>
-                The downloader searches the MRSPTU library for all
-                available question papers matching the supplied
-                subject codes.
+                Search by <strong>Subject Code</strong> to find all papers
+                associated with a subject, or switch to <strong>Paper ID</strong>
+                to locate papers directly.
             </p>
+
+            <div class="disclaimer">
+
+                <strong>⚠️ Disclaimer</strong>
+
+                <p>
+                    This is an independent, student-developed tool and is
+                    <strong>not made, maintained, endorsed, or officially
+                    affiliated with MRSPTU</strong>.
+                </p>
+
+            </div>
 
         </section>
 
@@ -363,16 +300,11 @@ BMECS1503"
     ====================================================== -->
 
     <footer>
-
-        <p>
-            MRSPTU Question Paper Downloader
-        </p>
-
+        <p>MRSPTU Question Paper Archive</p>
     </footer>
 
 
     <script src="script.js"></script>
 
 </body>
-
 </html>

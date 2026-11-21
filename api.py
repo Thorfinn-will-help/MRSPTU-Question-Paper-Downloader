@@ -1,17 +1,74 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from downloader import download_papers
-
+import io
 import os
-import uuid
-import threading
+import zipfile
 
+import boto3
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from supabase import create_client
+
+
+# ============================================================
+# CONFIG
+# ============================================================
+
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+TIGRIS_ACCESS_KEY_ID = os.getenv("TIGRIS_ACCESS_KEY_ID")
+TIGRIS_SECRET_ACCESS_KEY = os.getenv("TIGRIS_SECRET_ACCESS_KEY")
+TIGRIS_BUCKET = os.getenv("TIGRIS_BUCKET")
+TIGRIS_ENDPOINT = os.getenv("TIGRIS_ENDPOINT")
+
+
+required = {
+    "SUPABASE_URL": SUPABASE_URL,
+    "SUPABASE_SERVICE_KEY": SUPABASE_SERVICE_KEY,
+    "TIGRIS_ACCESS_KEY_ID": TIGRIS_ACCESS_KEY_ID,
+    "TIGRIS_SECRET_ACCESS_KEY": TIGRIS_SECRET_ACCESS_KEY,
+    "TIGRIS_BUCKET": TIGRIS_BUCKET,
+    "TIGRIS_ENDPOINT": TIGRIS_ENDPOINT,
+}
+
+missing = [name for name, value in required.items() if not value]
+
+if missing:
+    raise RuntimeError(
+        "Missing environment variables: "
+        + ", ".join(missing)
+    )
+
+
+# ============================================================
+# CLIENTS
+# ============================================================
+
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_KEY,
+)
+
+tigris = boto3.client(
+    "s3",
+    endpoint_url=TIGRIS_ENDPOINT,
+    aws_access_key_id=TIGRIS_ACCESS_KEY_ID,
+    aws_secret_access_key=TIGRIS_SECRET_ACCESS_KEY,
+    region_name="auto",
+)
+
+
+# ============================================================
+# FASTAPI
+# ============================================================
 
 app = FastAPI(
-    title="MRSPTU Question Paper Downloader"
+    title="MRSPTU Question Paper Archive API",
+    version="1.0.0",
 )
 
 
@@ -25,14 +82,11 @@ app.add_middleware(
 
 
 # ============================================================
-# JOB STORAGE
+# ZIP REQUEST MODEL
 # ============================================================
 
-jobs = {}
-
-
-class DownloadRequest(BaseModel):
-    subjects: list[str]
+class ZipRequest(BaseModel):
+    paper_ids: list[int]
 
 
 # ============================================================
@@ -43,197 +97,320 @@ class DownloadRequest(BaseModel):
 def home():
     return {
         "status": "online",
-        "message": "MRSPTU Question Paper Downloader API"
+        "service": "MRSPTU Question Paper Archive API",
     }
 
 
 # ============================================================
-# START DOWNLOAD
+# SEARCH PAPERS
 # ============================================================
 
-@app.post("/download")
-def start_download(request: DownloadRequest):
-
-    subjects = []
-
-    for subject in request.subjects:
-
-        subject = subject.strip().upper()
-
-        if subject and subject not in subjects:
-            subjects.append(subject)
-
-    if not subjects:
-        raise HTTPException(
-            status_code=400,
-            detail="No subject codes provided."
-        )
-
-    job_id = str(uuid.uuid4())
-
-    jobs[job_id] = {
-        "status": "starting",
-        "message": "Starting downloader...",
-        "progress": 0,
-        "eta": "--:--",
-        "zip_path": None,
-        "error": None,
-    }
-
-    thread = threading.Thread(
-        target=run_download,
-        args=(job_id, subjects),
-        daemon=True
-    )
-
-    thread.start()
-
-    return {
-        "job_id": job_id
-    }
-
-
-# ============================================================
-# DOWNLOAD WORKER
-# ============================================================
-
-def run_download(job_id, subjects):
-
-    def status_callback(message):
-
-        progress = 0
-
-        # Example:
-        # Downloaded 6/10 | Successful: 6 | Failed: 0 | ETA: 00:12
-
-        if message.startswith("Downloaded "):
-
-            try:
-                part = message.split("|")[0]
-                numbers = part.replace(
-                    "Downloaded ", ""
-                )
-
-                completed, total = numbers.split("/")
-
-                completed = int(completed)
-                total = int(total)
-
-                if total > 0:
-                    progress = int(
-                        (completed / total) * 100
-                    )
-
-            except Exception:
-                pass
-
-        elif message.startswith("ZIP ready:"):
-
-            progress = 100
-
-        jobs[job_id]["message"] = message
-        jobs[job_id]["progress"] = progress
-
-        # Extract ETA
-        if "ETA:" in message:
-
-            try:
-                eta = message.split("ETA:")[-1].strip()
-                jobs[job_id]["eta"] = eta
-            except Exception:
-                pass
-
+@app.get("/papers")
+def search_papers(
+    subject_code: str | None = Query(default=None),
+    year: int | None = Query(default=None),
+    paper_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=100),
+):
     try:
-
-        jobs[job_id]["status"] = "running"
-
-        zip_path = download_papers(
-            subjects,
-            status_callback=status_callback
+        query = (
+            supabase
+            .table("papers")
+            .select(
+                "id,"
+                "paper_id,"
+                "subject_code,"
+                "year,"
+                "sequence_number,"
+                "file_type,"
+                "file_name,"
+                "storage_key"
+            )
         )
 
-        if not zip_path or not os.path.exists(zip_path):
-
-            raise Exception(
-                "No ZIP file was created."
+        if subject_code:
+            value = (
+                subject_code
+                .strip()
+                .replace(" ", "")
+                .replace("-", "")
+                .upper()
             )
 
-        jobs[job_id]["status"] = "completed"
-        jobs[job_id]["progress"] = 100
-        jobs[job_id]["message"] = (
-            "Download completed successfully."
+            # Subject codes in the archive are treated as exact
+            # identifiers after removing spaces and hyphens.
+            query = query.ilike(
+                "subject_code",
+                value
+            )
+
+        if year:
+            query = query.eq("year", year)
+
+        if paper_id:
+            value = paper_id.strip()
+
+            query = query.ilike(
+                "paper_id",
+                value
+            )
+
+        response = (
+            query
+            .order("year", desc=True)
+            .order("subject_code")
+            .order("sequence_number")
+            .limit(limit)
+            .execute()
         )
-        jobs[job_id]["eta"] = "00:00"
-        jobs[job_id]["zip_path"] = zip_path
+
+        papers = response.data or []
+
+        return {
+            "count": len(papers),
+            "papers": papers,
+        }
 
     except Exception as error:
 
-        jobs[job_id]["status"] = "error"
-        jobs[job_id]["error"] = str(error)
-        jobs[job_id]["message"] = (
-            f"Error: {error}"
-        )
-
-
-# ============================================================
-# CHECK PROGRESS
-# ============================================================
-
-@app.get("/status/{job_id}")
-def get_status(job_id):
-
-    if job_id not in jobs:
+        print("SEARCH ERROR:", repr(error))
 
         raise HTTPException(
-            status_code=404,
-            detail="Job not found."
+            status_code=500,
+            detail=f"Database search failed: {error}"
         )
 
-    job = jobs[job_id]
-
-    return {
-        "status": job["status"],
-        "message": job["message"],
-        "progress": job["progress"],
-        "eta": job["eta"],
-        "error": job["error"],
-    }
-
 
 # ============================================================
-# GET ZIP
+# GET ONE PAPER
 # ============================================================
 
-@app.get("/download/{job_id}")
-def get_download(job_id):
+@app.get("/papers/{paper_id_number}")
+def get_paper(paper_id_number: int):
 
-    if job_id not in jobs:
+    response = (
+        supabase
+        .table("papers")
+        .select("*")
+        .eq("id", paper_id_number)
+        .maybe_single()
+        .execute()
+    )
 
+    if response is None or not response.data:
         raise HTTPException(
             status_code=404,
-            detail="Job not found."
+            detail="Paper not found."
         )
 
-    job = jobs[job_id]
+    return response.data
 
-    if job["status"] != "completed":
 
+# ============================================================
+# DOWNLOAD ONE PAPER
+# ============================================================
+
+@app.get("/papers/{paper_id_number}/download")
+def download_paper(paper_id_number: int):
+
+    response = (
+        supabase
+        .table("papers")
+        .select("*")
+        .eq("id", paper_id_number)
+        .maybe_single()
+        .execute()
+    )
+
+    if response is None or not response.data:
+        raise HTTPException(
+            status_code=404,
+            detail="Paper not found."
+        )
+
+    paper = response.data
+    storage_key = paper["storage_key"]
+
+    # --------------------------------------------------------
+    # GET FILE FROM TIGRIS
+    # --------------------------------------------------------
+
+    try:
+        obj = tigris.get_object(
+            Bucket=TIGRIS_BUCKET,
+            Key=storage_key,
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=404,
+            detail=f"File not found in storage: {error}",
+        )
+
+    # --------------------------------------------------------
+    # FILE TYPE
+    # --------------------------------------------------------
+
+    file_type = paper["file_type"].lower()
+
+    if file_type == "pdf":
+        content_type = "application/pdf"
+
+    elif file_type == "docx":
+        content_type = (
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        )
+
+    else:
+        content_type = "application/octet-stream"
+
+    # --------------------------------------------------------
+    # STREAM FILE
+    # --------------------------------------------------------
+
+    return StreamingResponse(
+        obj["Body"].iter_chunks(
+            chunk_size=1024 * 1024
+        ),
+        media_type=content_type,
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{paper["file_name"]}"'
+            )
+        },
+    )
+
+
+# ============================================================
+# DOWNLOAD MULTIPLE PAPERS AS ZIP
+# ============================================================
+
+@app.post("/papers/download-zip")
+def download_zip(request: ZipRequest):
+
+    # --------------------------------------------------------
+    # VALIDATE REQUEST
+    # --------------------------------------------------------
+
+    if not request.paper_ids:
         raise HTTPException(
             status_code=400,
-            detail="Download is not ready yet."
+            detail="No papers selected."
         )
 
-    zip_path = job["zip_path"]
+    # Remove duplicate IDs while preserving order
+    paper_ids = list(dict.fromkeys(request.paper_ids))
 
-    if not zip_path or not os.path.exists(zip_path):
+    # --------------------------------------------------------
+    # GET PAPER METADATA FROM SUPABASE
+    # --------------------------------------------------------
 
+    response = (
+        supabase
+        .table("papers")
+        .select("*")
+        .in_("id", paper_ids)
+        .execute()
+    )
+
+    papers = response.data or []
+
+    if not papers:
         raise HTTPException(
             status_code=404,
-            detail="ZIP file no longer exists."
+            detail="No papers found."
         )
 
-    return FileResponse(
-        zip_path,
+    # --------------------------------------------------------
+    # CREATE ZIP IN MEMORY
+    # --------------------------------------------------------
+
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(
+        zip_buffer,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as zip_file:
+
+        used_names = set()
+
+        for paper in papers:
+
+            storage_key = paper["storage_key"]
+            original_name = paper["file_name"]
+
+            # ------------------------------------------------
+            # GET FILE FROM TIGRIS
+            # ------------------------------------------------
+
+            try:
+                obj = tigris.get_object(
+                    Bucket=TIGRIS_BUCKET,
+                    Key=storage_key,
+                )
+
+                file_data = obj["Body"].read()
+
+            except Exception as error:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f'Could not retrieve '
+                        f'{original_name}: {error}'
+                    ),
+                )
+
+            # ------------------------------------------------
+            # PREVENT DUPLICATE ZIP FILENAMES
+            # ------------------------------------------------
+
+            zip_name = original_name
+
+            if zip_name in used_names:
+
+                base, extension = os.path.splitext(
+                    original_name
+                )
+
+                counter = 2
+
+                while f"{base}_{counter}{extension}" in used_names:
+                    counter += 1
+
+                zip_name = (
+                    f"{base}_{counter}{extension}"
+                )
+
+            used_names.add(zip_name)
+
+            # ------------------------------------------------
+            # ADD FILE TO ZIP
+            # ------------------------------------------------
+
+            zip_file.writestr(
+                zip_name,
+                file_data,
+            )
+
+    # --------------------------------------------------------
+    # RESET BUFFER
+    # --------------------------------------------------------
+
+    zip_buffer.seek(0)
+
+    # --------------------------------------------------------
+    # RETURN ZIP
+    # --------------------------------------------------------
+
+    return StreamingResponse(
+        zip_buffer,
         media_type="application/zip",
-        filename="MRSPTU_Question_Papers.zip"
+        headers={
+            "Content-Disposition": (
+                'attachment; '
+                'filename="MRSPTU_Question_Papers.zip"'
+            )
+        },
     )

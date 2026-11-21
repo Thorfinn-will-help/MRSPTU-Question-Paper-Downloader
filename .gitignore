@@ -6,3 +6,6 @@ venv/
 .idea/
 .vscode/
 *.zip 
+.env
+supabase.env
+tigris.env

@@ -1,30 +1,31 @@
-// =========================================================
-// CONFIGURATION
-// =========================================================
+const API_URL = "http://127.0.0.1:8000";
 
-// Replace this with your Render FastAPI URL.
-//
-// Example:
-// const API_URL = "https://mrsptu-downloader-api.onrender.com";
-
-const API_URL = "https://mrsptu-question-paper-api.onrender.com";
+let searchMode = "subject_code";
+let lastResults = [];
+let searchStartTime = null;
+let timerInterval = null;
 
 
-// =========================================================
-// ELEMENTS
-// =========================================================
+// ============================================================
+// DOM ELEMENTS
+// ============================================================
 
-const subjectsInput =
-    document.getElementById("subjects");
+const searchInput = document.getElementById("subjects");
+const searchButton = document.getElementById("downloadBtn");
 
-const downloadBtn =
-    document.getElementById("downloadBtn");
+const themeBtn = document.getElementById("themeBtn");
 
-const themeBtn =
-    document.getElementById("themeBtn");
+const subjectModeBtn =
+    document.getElementById("subjectModeBtn");
 
-const terminal =
-    document.getElementById("terminal");
+const paperIdModeBtn =
+    document.getElementById("paperIdModeBtn");
+
+const inputHint =
+    document.getElementById("inputHint");
+
+const resultsSection =
+    document.getElementById("resultsSection");
 
 const progressFill =
     document.getElementById("progressFill");
@@ -32,234 +33,467 @@ const progressFill =
 const progressPercent =
     document.getElementById("progressPercent");
 
-const etaElement =
-    document.getElementById("eta");
-
-const elapsedElement =
+const elapsed =
     document.getElementById("elapsed");
 
-const statusElement =
-    document.getElementById("status");
+const eta =
+    document.getElementById("eta");
 
 const statusText =
     document.getElementById("statusText");
 
-
-// =========================================================
-// THEME
-// =========================================================
-
-function applyTheme(theme) {
-
-    if (theme === "dark") {
-
-        document.body.classList.add("dark");
-
-        themeBtn.textContent = "☀️";
-
-    } else {
-
-        document.body.classList.remove("dark");
-
-        themeBtn.textContent = "🌙";
-    }
-}
+const status =
+    document.getElementById("status");
 
 
-const savedTheme =
-    localStorage.getItem("mrsptu-theme") || "light";
+// ============================================================
+// SEARCH MODE
+// ============================================================
 
-applyTheme(savedTheme);
+subjectModeBtn.addEventListener("click", () => {
 
+    searchMode = "subject_code";
 
-themeBtn.onclick = () => {
+    subjectModeBtn.classList.add("active");
+    paperIdModeBtn.classList.remove("active");
 
-    const dark =
-        document.body.classList.contains("dark");
+    searchInput.placeholder =
+        "BMECS1501\nBMECS1502\nBMECS1503";
 
-    const newTheme =
-        dark ? "light" : "dark";
-
-    applyTheme(newTheme);
-
-    localStorage.setItem(
-        "mrsptu-theme",
-        newTheme
-    );
-};
+    inputHint.textContent =
+        "Enter one subject code per line. Spaces and hyphens are automatically ignored.";
+});
 
 
-// =========================================================
-// TERMINAL
-// =========================================================
+paperIdModeBtn.addEventListener("click", () => {
 
-function addTerminalLine(message) {
+    searchMode = "paper_id";
 
-    const line =
-        document.createElement("div");
+    paperIdModeBtn.classList.add("active");
+    subjectModeBtn.classList.remove("active");
 
-    line.className =
-        "terminal-line";
+    searchInput.placeholder =
+        "23440104\n23440105\n23440106";
 
-    line.innerHTML = `
-        <span class="terminal-prompt">&gt;</span>
-        <span>${escapeHtml(message)}</span>
-    `;
-
-    terminal.appendChild(line);
-
-    terminal.scrollTop =
-        terminal.scrollHeight;
-}
+    inputHint.textContent =
+        "Enter one Paper ID per line.";
+});
 
 
-function clearTerminal() {
+// ============================================================
+// SEARCH BUTTON
+// ============================================================
 
-    terminal.innerHTML = "";
-}
-
-
-function escapeHtml(text) {
-
-    const div =
-        document.createElement("div");
-
-    div.textContent = text;
-
-    return div.innerHTML;
-}
+searchButton.addEventListener(
+    "click",
+    searchPapers
+);
 
 
-// =========================================================
-// TIME FORMAT
-// =========================================================
+// ============================================================
+// SEARCH PAPERS
+// ============================================================
 
-function formatSeconds(seconds) {
+async function searchPapers() {
 
-    if (
-        seconds === null ||
-        seconds === undefined ||
-        isNaN(seconds)
-    ) {
-        return "--:--";
-    }
-
-    seconds =
-        Math.max(0, Math.floor(seconds));
-
-    const minutes =
-        Math.floor(seconds / 60);
-
-    const remaining =
-        seconds % 60;
-
-    return (
-        String(minutes).padStart(2, "0") +
-        ":" +
-        String(remaining).padStart(2, "0")
-    );
-}
+    const rawInput =
+        searchInput.value.trim();
 
 
-// =========================================================
-// DOWNLOAD
-// =========================================================
+    if (!rawInput) {
 
-downloadBtn.onclick = async () => {
-
-    const text =
-        subjectsInput.value.trim();
-
-
-    const subjects =
-        text
-            .split(/\r?\n/)
-            .map(x => x.trim())
-            .filter(x => x);
-
-
-    // -----------------------------------------------------
-    // VALIDATION
-    // -----------------------------------------------------
-
-    if (subjects.length === 0) {
-
-        statusElement.textContent =
-            "Enter at least one subject code.";
-
-        statusText.textContent =
-            "Error";
+        showStatus(
+            "Please enter a Subject Code or Paper ID."
+        );
 
         return;
     }
 
 
-    // -----------------------------------------------------
-    // RESET UI
-    // -----------------------------------------------------
+    /*
+     * Split input by lines.
+     */
 
-    clearTerminal();
-
-    progressFill.style.width = "0%";
-
-    progressPercent.textContent =
-        "0%";
-
-    etaElement.textContent =
-        "ETA: --:--";
-
-    elapsedElement.textContent =
-        "00:00";
-
-    statusElement.textContent =
-        "Starting";
-
-    statusText.textContent =
-        "Starting";
-
-    downloadBtn.disabled = true;
+    const values =
+        rawInput
+            .split(/\r?\n/)
+            .map(value => value.trim())
+            .filter(Boolean);
 
 
-    addTerminalLine(
-        `Starting download for ${subjects.length} subject(s)...`
+    if (values.length === 0) {
+
+        showStatus(
+            "Please enter a valid search value."
+        );
+
+        return;
+    }
+
+
+    /*
+     * Reset previous search.
+     */
+
+    lastResults = [];
+
+    searchButton.disabled = true;
+
+    setProgress(5);
+
+    searchStartTime = Date.now();
+
+    clearInterval(timerInterval);
+
+    timerInterval =
+        setInterval(
+            updateElapsedTime,
+            100
+        );
+
+
+    showStatus(
+        `Searching ${values.length} ${
+            values.length === 1
+                ? "query"
+                : "queries"
+        }...`
     );
 
 
-    let jobId = null;
+    /*
+     * Remove old results.
+     */
 
-    let pollInterval = null;
+    const oldDownloadAll =
+        document.getElementById(
+            "downloadAllBtn"
+        );
+
+    if (oldDownloadAll) {
+        oldDownloadAll.remove();
+    }
+
+
+    /*
+     * IMPORTANT:
+     *
+     * Run all searches simultaneously.
+     *
+     * Previously the code waited for:
+     *
+     * query 1 → query 2 → query 3
+     *
+     * Now:
+     *
+     * query 1 ─┐
+     * query 2 ─┼→ simultaneously
+     * query 3 ─┘
+     */
+
+    try {
+
+        const requests =
+            values.map(
+                value => searchSingleValue(value)
+            );
+
+
+        const results =
+            await Promise.all(requests);
+
+
+        /*
+         * Combine all returned arrays.
+         */
+
+        const allResults =
+            results.flat();
+
+
+        /*
+         * Remove duplicate database records.
+         */
+
+        const uniqueResults = [];
+
+        const seen =
+            new Set();
+
+
+        for (const paper of allResults) {
+
+            if (!seen.has(paper.id)) {
+
+                seen.add(paper.id);
+
+                uniqueResults.push(paper);
+            }
+        }
+
+
+        lastResults =
+            uniqueResults;
+
+
+        setProgress(100);
+
+
+        if (lastResults.length === 0) {
+
+            showStatus(
+                "Search complete. No papers found."
+            );
+
+
+            renderEmptyResults();
+
+            return;
+        }
+
+
+        /*
+         * Sort:
+         *
+         * Year: newest first
+         * Subject: alphabetical
+         * Sequence: ascending
+         */
+
+        lastResults.sort(
+            (a, b) => {
+
+                if (
+                    Number(a.year) !==
+                    Number(b.year)
+                ) {
+
+                    return (
+                        Number(b.year) -
+                        Number(a.year)
+                    );
+                }
+
+
+                if (
+                    String(a.subject_code || "") !==
+                    String(b.subject_code || "")
+                ) {
+
+                    return String(
+                        a.subject_code || ""
+                    ).localeCompare(
+                        String(
+                            b.subject_code || ""
+                        )
+                    );
+                }
+
+
+                return (
+                    Number(
+                        a.sequence_number || 0
+                    ) -
+                    Number(
+                        b.sequence_number || 0
+                    )
+                );
+            }
+        );
+
+
+        showStatus(
+            `Found ${lastResults.length} paper${
+                lastResults.length === 1
+                    ? ""
+                    : "s"
+            }.`
+        );
+
+
+        renderResults(
+            lastResults
+        );
+
+
+        createDownloadAllButton();
+
+
+    } catch (error) {
+
+        console.error(
+            "SEARCH ERROR:",
+            error
+        );
+
+
+        setProgress(100);
+
+
+        if (
+            error.name ===
+            "AbortError"
+        ) {
+
+            showStatus(
+                "Search timed out after 15 seconds."
+            );
+
+
+            renderError(
+                "Search timed out",
+                "The archive server did not respond within 15 seconds."
+            );
+
+        } else {
+
+            showStatus(
+                "Search failed."
+            );
+
+
+            renderError(
+                "Unable to search archive",
+                error.message
+            );
+        }
+
+    } finally {
+
+        searchButton.disabled = false;
+
+        clearInterval(
+            timerInterval
+        );
+    }
+}
+
+
+// ============================================================
+// SINGLE SEARCH REQUEST
+// ============================================================
+
+async function searchSingleValue(
+    value
+) {
+
+    const params =
+        new URLSearchParams();
+
+
+    /*
+     * Subject Code search
+     */
+
+    if (
+        searchMode ===
+        "subject_code"
+    ) {
+
+        /*
+         * Remove spaces and hyphens.
+         *
+         * Example:
+         *
+         * ME-CS-501
+         * ME CS 501
+         *
+         * becomes:
+         *
+         * MECS501
+         */
+
+        const normalized =
+            value
+                .replace(
+                    /[\s-]/g,
+                    ""
+                )
+                .toUpperCase();
+
+
+        params.append(
+            "subject_code",
+            normalized
+        );
+
+
+    /*
+     * Paper ID search
+     */
+
+    } else {
+
+        params.append(
+            "paper_id",
+            value.trim()
+        );
+    }
+
+
+    params.append(
+        "limit",
+        "100"
+    );
+
+
+    /*
+     * Abort request after 15 seconds.
+     */
+
+    const controller =
+        new AbortController();
+
+
+    const timeout =
+        setTimeout(
+            () => {
+                controller.abort();
+            },
+            15000
+        );
 
 
     try {
 
-        // =================================================
-        // START JOB
-        // =================================================
-
         const response =
-            await fetch(`${API_URL}/download`, {
-
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body: JSON.stringify({
-                    subjects: subjects
-                })
-            });
+            await fetch(
+                `${API_URL}/papers?${params.toString()}`,
+                {
+                    method: "GET",
+                    signal: controller.signal,
+                    cache: "no-store"
+                }
+            );
 
 
         if (!response.ok) {
 
-            const errorText =
-                await response.text();
+            let message =
+                `HTTP ${response.status}`;
+
+
+            try {
+
+                const errorData =
+                    await response.json();
+
+
+                if (
+                    errorData.detail
+                ) {
+
+                    message =
+                        errorData.detail;
+                }
+
+            } catch (_) {
+                // Ignore JSON parsing failure.
+            }
+
 
             throw new Error(
-                errorText ||
-                `Server returned ${response.status}`
+                message
             );
         }
 
@@ -268,313 +502,936 @@ downloadBtn.onclick = async () => {
             await response.json();
 
 
-        jobId =
-            data.job_id;
+        return data.papers || [];
 
 
-        if (!jobId) {
+    } finally {
+
+        clearTimeout(
+            timeout
+        );
+    }
+}
+
+
+// ============================================================
+// RENDER RESULTS
+// ============================================================
+
+function renderResults(
+    papers
+) {
+
+    /*
+     * IMPORTANT:
+     *
+     * The HTML contains #resultsSection.
+     *
+     * We create the result content directly inside it.
+     */
+
+    resultsSection.innerHTML = "";
+
+
+    /*
+     * Group by Subject Code.
+     */
+
+    const grouped = {};
+
+
+    papers.forEach(
+        paper => {
+
+            const subject =
+                paper.subject_code ||
+                "Unknown Subject";
+
+
+            if (!grouped[subject]) {
+
+                grouped[subject] = [];
+            }
+
+
+            grouped[subject].push(
+                paper
+            );
+        }
+    );
+
+
+    /*
+     * Create groups.
+     */
+
+    Object.keys(grouped)
+        .sort()
+        .forEach(
+            subjectCode => {
+
+                const subjectGroup =
+                    document.createElement(
+                        "div"
+                    );
+
+
+                subjectGroup.className =
+                    "subject-group";
+
+
+                const subjectPapers =
+                    grouped[
+                        subjectCode
+                    ];
+
+
+                /*
+                 * Subject heading
+                 */
+
+                const heading =
+                    document.createElement(
+                        "div"
+                    );
+
+
+                heading.className =
+                    "subject-heading";
+
+
+                heading.innerHTML = `
+                    <div>
+                        <span class="subject-label">
+                            SUBJECT CODE
+                        </span>
+
+                        <h3>
+                            ${escapeHTML(
+                                subjectCode
+                            )}
+                        </h3>
+                    </div>
+
+                    <span class="subject-count">
+                        ${
+                            subjectPapers.length
+                        }
+                        ${
+                            subjectPapers.length === 1
+                                ? "paper"
+                                : "papers"
+                        }
+                    </span>
+                `;
+
+
+                subjectGroup.appendChild(
+                    heading
+                );
+
+
+                /*
+                 * Group by year.
+                 */
+
+                const years = {};
+
+
+                subjectPapers.forEach(
+                    paper => {
+
+                        const year =
+                            paper.year ||
+                            "Unknown";
+
+
+                        if (!years[year]) {
+
+                            years[year] = [];
+                        }
+
+
+                        years[year].push(
+                            paper
+                        );
+                    }
+                );
+
+
+                /*
+                 * Newest year first.
+                 */
+
+                Object.keys(years)
+                    .sort(
+                        (a, b) =>
+                            Number(b) -
+                            Number(a)
+                    )
+                    .forEach(
+                        year => {
+
+                            const yearGroup =
+                                document.createElement(
+                                    "div"
+                                );
+
+
+                            yearGroup.className =
+                                "year-group";
+
+
+                            yearGroup.innerHTML = `
+                                <div class="year-heading">
+
+                                    <span>
+                                        ${escapeHTML(
+                                            String(year)
+                                        )}
+                                    </span>
+
+                                    <div class="year-line"></div>
+
+                                </div>
+
+                                <div class="paper-list"></div>
+                            `;
+
+
+                            const paperList =
+                                yearGroup.querySelector(
+                                    ".paper-list"
+                                );
+
+
+                            years[year]
+                                .sort(
+                                    (
+                                        a,
+                                        b
+                                    ) =>
+                                        Number(
+                                            a.sequence_number ||
+                                            0
+                                        ) -
+                                        Number(
+                                            b.sequence_number ||
+                                            0
+                                        )
+                                )
+                                .forEach(
+                                    paper => {
+
+                                        paperList.appendChild(
+                                            createPaperCard(
+                                                paper
+                                            )
+                                        );
+                                    }
+                                );
+
+
+                            subjectGroup.appendChild(
+                                yearGroup
+                            );
+                        }
+                    );
+
+
+                resultsSection.appendChild(
+                    subjectGroup
+                );
+            }
+        );
+}
+
+
+// ============================================================
+// PAPER CARD
+// ============================================================
+
+function createPaperCard(
+    paper
+) {
+
+    const card =
+        document.createElement(
+            "div"
+        );
+
+
+    card.className =
+        "paper-card";
+
+
+    const fileType =
+        String(
+            paper.file_type || ""
+        ).toUpperCase();
+
+
+    const paperId =
+        paper.paper_id ||
+        "Unavailable";
+
+
+    const sequence =
+        paper.sequence_number
+            ? `Paper ${paper.sequence_number}`
+            : "Paper";
+
+
+    card.innerHTML = `
+
+        <div class="file-icon">
+            ${escapeHTML(
+                fileType
+            )}
+        </div>
+
+        <div class="paper-info">
+
+            <div class="paper-title">
+                ${escapeHTML(
+                    sequence
+                )}
+            </div>
+
+            <div class="paper-meta">
+
+                <span>
+                    ${escapeHTML(
+                        String(
+                            paper.year ||
+                            ""
+                        )
+                    )}
+                </span>
+
+                <span class="meta-separator">
+                    •
+                </span>
+
+                <span>
+                    ID:
+                    ${escapeHTML(
+                        String(
+                            paperId
+                        )
+                    )}
+                </span>
+
+                <span class="meta-separator">
+                    •
+                </span>
+
+                <span>
+                    ${escapeHTML(
+                        fileType
+                    )}
+                </span>
+
+            </div>
+
+            <div class="paper-meta">
+                ${escapeHTML(
+                    paper.file_name ||
+                    ""
+                )}
+            </div>
+
+        </div>
+
+        <button
+            class="individual-download"
+            type="button"
+        >
+            Download
+        </button>
+    `;
+
+
+    const downloadButton =
+        card.querySelector(
+            ".individual-download"
+        );
+
+
+    downloadButton.addEventListener(
+        "click",
+        () => {
+
+            downloadIndividualPaper(
+                paper.id
+            );
+        }
+    );
+
+
+    return card;
+}
+
+
+// ============================================================
+// INDIVIDUAL DOWNLOAD
+// ============================================================
+
+function downloadIndividualPaper(
+    databaseId
+) {
+
+    if (!databaseId) {
+
+        showStatus(
+            "Invalid paper record."
+        );
+
+        return;
+    }
+
+
+    const url =
+        `${API_URL}/papers/` +
+        `${encodeURIComponent(
+            databaseId
+        )}/download`;
+
+
+    /*
+     * Let the browser handle the file download.
+     */
+
+    window.location.href =
+        url;
+}
+
+
+// ============================================================
+// DOWNLOAD ALL BUTTON
+// ============================================================
+
+function createDownloadAllButton() {
+
+    /*
+     * Remove old button.
+     */
+
+    const existing =
+        document.getElementById(
+            "downloadAllBtn"
+        );
+
+
+    if (existing) {
+
+        existing.remove();
+    }
+
+
+    if (
+        !lastResults.length
+    ) {
+
+        return;
+    }
+
+
+    /*
+     * Button sits outside individual
+     * paper cards.
+     */
+
+    const button =
+        document.createElement(
+            "button"
+        );
+
+
+    button.id =
+        "downloadAllBtn";
+
+
+    button.className =
+        "download-all-btn";
+
+
+    button.type =
+        "button";
+
+
+    button.textContent =
+        `Download All (${lastResults.length})`;
+
+
+    button.addEventListener(
+        "click",
+        downloadAllPapers
+    );
+
+
+    /*
+     * Put button at the top of results.
+     */
+
+    resultsSection.prepend(
+        button
+    );
+}
+
+
+// ============================================================
+// DOWNLOAD ALL
+// ============================================================
+
+async function downloadAllPapers() {
+
+    if (
+        !lastResults.length
+    ) {
+
+        showStatus(
+            "There are no papers to download."
+        );
+
+        return;
+    }
+
+
+    const ids =
+        lastResults
+            .map(
+                paper => paper.id
+            )
+            .filter(
+                Boolean
+            );
+
+
+    if (!ids.length) {
+
+        showStatus(
+            "No downloadable papers found."
+        );
+
+        return;
+    }
+
+
+    const button =
+        document.getElementById(
+            "downloadAllBtn"
+        );
+
+
+    if (button) {
+
+        button.disabled = true;
+
+        button.textContent =
+            "Preparing ZIP...";
+    }
+
+
+    showStatus(
+        `Preparing ${ids.length} papers...`
+    );
+
+
+    setProgress(10);
+
+
+    try {
+
+        const response =
+            await fetch(
+                `${API_URL}/papers/download-zip`,
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        paper_ids: ids
+                    })
+                }
+            );
+
+
+        if (!response.ok) {
+
+            let message =
+                `HTTP ${response.status}`;
+
+
+            try {
+
+                const errorData =
+                    await response.json();
+
+
+                if (
+                    errorData.detail
+                ) {
+
+                    message =
+                        errorData.detail;
+                }
+
+            } catch (_) {}
+
 
             throw new Error(
-                "Server did not return a job ID."
+                message
             );
         }
 
 
-        addTerminalLine(
-            `Job started: ${jobId}`
-        );
+        setProgress(70);
 
 
-        statusElement.textContent =
-            "Downloading";
-
-        statusText.textContent =
-            "Running";
+        const blob =
+            await response.blob();
 
 
-        // =================================================
-        // POLL STATUS
-        // =================================================
+        setProgress(100);
 
-        pollInterval =
-            setInterval(
-                () => checkStatus(jobId),
-                1000
+
+        const url =
+            window.URL.createObjectURL(
+                blob
             );
 
 
-        // Immediately check once
-        await checkStatus(jobId);
+        const link =
+            document.createElement(
+                "a"
+            );
+
+
+        link.href =
+            url;
+
+
+        link.download =
+            "MRSPTU_Question_Papers.zip";
+
+
+        document.body.appendChild(
+            link
+        );
+
+
+        link.click();
+
+
+        link.remove();
+
+
+        window.URL.revokeObjectURL(
+            url
+        );
+
+
+        showStatus(
+            `Downloaded ${ids.length} papers.`
+        );
 
 
     } catch (error) {
 
-        console.error(error);
-
-        addTerminalLine(
-            `ERROR: ${error.message}`
+        console.error(
+            "ZIP ERROR:",
+            error
         );
 
-        statusElement.textContent =
-            "Error";
+
+        showStatus(
+            "Unable to create ZIP file."
+        );
+
+
+        renderError(
+            "Download All failed",
+            error.message
+        );
+
+
+    } finally {
+
+        if (button) {
+
+            button.disabled = false;
+
+            button.textContent =
+                `Download All (${lastResults.length})`;
+        }
+    }
+}
+
+
+// ============================================================
+// EMPTY RESULTS
+// ============================================================
+
+function renderEmptyResults() {
+
+    resultsSection.innerHTML = `
+
+        <div class="results-placeholder">
+
+            <div class="placeholder-icon">
+                ⌕
+            </div>
+
+            <h2>
+                No papers found
+            </h2>
+
+            <p>
+                Nothing in the archive matched your search.
+            </p>
+
+        </div>
+    `;
+}
+
+
+// ============================================================
+// ERROR RESULTS
+// ============================================================
+
+function renderError(
+    title,
+    message
+) {
+
+    resultsSection.innerHTML = `
+
+        <div class="results-card error-card">
+
+            <div class="result-message-icon">
+                !
+            </div>
+
+            <h2>
+                ${escapeHTML(title)}
+            </h2>
+
+            <p>
+                ${escapeHTML(message)}
+            </p>
+
+        </div>
+    `;
+}
+
+
+// ============================================================
+// STATUS
+// ============================================================
+
+function showStatus(
+    message
+) {
+
+    if (statusText) {
+
+        /*
+         * First line
+         */
 
         statusText.textContent =
-            "Error";
-
-        downloadBtn.disabled = false;
-
-
-        if (pollInterval) {
-
-            clearInterval(
-                pollInterval
-            );
-        }
+            message;
     }
 
 
-    // =====================================================
-    // STATUS CHECK
-    // =====================================================
+    if (status) {
 
-    async function checkStatus(id) {
+        status.textContent =
+            message;
+    }
+}
 
-        try {
 
-            const response =
-                await fetch(
-                    `${API_URL}/status/${id}`
+// ============================================================
+// PROGRESS
+// ============================================================
+
+function setProgress(
+    value
+) {
+
+    const percentage =
+        Math.max(
+            0,
+            Math.min(
+                100,
+                value
+            )
+        );
+
+
+    if (progressFill) {
+
+        progressFill.style.width =
+            `${percentage}%`;
+    }
+
+
+    if (progressPercent) {
+
+        progressPercent.textContent =
+            `${Math.round(
+                percentage
+            )}%`;
+    }
+}
+
+
+// ============================================================
+// ELAPSED TIME
+// ============================================================
+
+function updateElapsedTime() {
+
+    if (
+        !searchStartTime
+    ) {
+
+        return;
+    }
+
+
+    const seconds =
+        (
+            Date.now() -
+            searchStartTime
+        ) / 1000;
+
+
+    if (elapsed) {
+
+        if (seconds < 60) {
+
+            elapsed.textContent =
+                `${seconds.toFixed(1)}s`;
+
+        } else {
+
+            const minutes =
+                Math.floor(
+                    seconds / 60
                 );
 
-
-            if (!response.ok) {
-
-                throw new Error(
-                    `Status request failed: ${response.status}`
-                );
-            }
-
-
-            const data =
-                await response.json();
-
-
-            // ------------------------------------------------
-            // PROGRESS
-            // ------------------------------------------------
-
-            const progress =
-                Number(data.progress || 0);
-
-
-            progressFill.style.width =
-                `${progress}%`;
-
-
-            progressPercent.textContent =
-                `${Math.round(progress)}%`;
-
-
-            // ------------------------------------------------
-            // ETA
-            // ------------------------------------------------
-
-            if (
-                data.eta !== null &&
-                data.eta !== undefined
-            ) {
-
-                etaElement.textContent =
-                    `ETA: ${formatSeconds(data.eta)}`;
-
-            } else {
-
-                etaElement.textContent =
-                    "ETA: calculating...";
-            }
-
-
-            // ------------------------------------------------
-            // ELAPSED
-            // ------------------------------------------------
-
-            if (
-                data.elapsed !== null &&
-                data.elapsed !== undefined
-            ) {
-
-                elapsedElement.textContent =
-                    formatSeconds(data.elapsed);
-            }
-
-
-            // ------------------------------------------------
-            // STATUS
-            // ------------------------------------------------
-
-            if (data.message) {
-
-                addTerminalLine(
-                    data.message
-                );
-            }
-
-
-            // ------------------------------------------------
-            // COMPLETED
-            // ------------------------------------------------
-
-            if (
-                data.status === "completed"
-            ) {
-
-                clearInterval(
-                    pollInterval
+            const remaining =
+                Math.floor(
+                    seconds % 60
                 );
 
-
-                progressFill.style.width =
-                    "100%";
-
-                progressPercent.textContent =
-                    "100%";
-
-                etaElement.textContent =
-                    "ETA: 00:00";
-
-
-                statusElement.textContent =
-                    "Complete";
-
-                statusText.textContent =
-                    "Complete";
-
-
-                addTerminalLine(
-                    "Download completed."
-                );
-
-
-                // ---------------------------------------------
-                // DOWNLOAD ZIP
-                // ---------------------------------------------
-
-                const fileResponse =
-                    await fetch(
-                        `${API_URL}/download/${id}`
-                    );
-
-
-                if (!fileResponse.ok) {
-
-                    throw new Error(
-                        "Could not retrieve ZIP file."
-                    );
-                }
-
-
-                const blob =
-                    await fileResponse.blob();
-
-
-                const url =
-                    window.URL.createObjectURL(
-                        blob
-                    );
-
-
-                const link =
-                    document.createElement("a");
-
-
-                link.href = url;
-
-                link.download =
-                    "MRSPTU_Question_Papers.zip";
-
-
-                document.body.appendChild(
-                    link
-                );
-
-
-                link.click();
-
-
-                link.remove();
-
-
-                window.URL.revokeObjectURL(
-                    url
-                );
-
-
-                addTerminalLine(
-                    "ZIP file downloaded."
-                );
-
-
-                downloadBtn.disabled =
-                    false;
-            }
-
-
-            // ------------------------------------------------
-            // FAILED
-            // ------------------------------------------------
-
-            if (
-                data.status === "failed"
-            ) {
-
-                clearInterval(
-                    pollInterval
-                );
-
-
-                statusElement.textContent =
-                    "Failed";
-
-                statusText.textContent =
-                    "Failed";
-
-
-                addTerminalLine(
-                    data.error ||
-                    "Download failed."
-                );
-
-
-                downloadBtn.disabled =
-                    false;
-            }
-
-        } catch (error) {
-
-            console.error(
-                "Status error:",
-                error
-            );
-
-            clearInterval(
-                pollInterval
-            );
-
-
-            statusElement.textContent =
-                "Error";
-
-            statusText.textContent =
-                "Error";
-
-
-            addTerminalLine(
-                `ERROR: ${error.message}`
-            );
-
-
-            downloadBtn.disabled =
-                false;
+            elapsed.textContent =
+                `${String(minutes).padStart(2, "0")}:` +
+                `${String(remaining).padStart(2, "0")}`;
         }
     }
-};
+}
+
+
+// ============================================================
+// DARK MODE
+// ============================================================
+
+themeBtn.addEventListener(
+    "click",
+    () => {
+
+        document.body.classList.toggle(
+            "dark"
+        );
+
+
+        const isDark =
+            document.body.classList.contains(
+                "dark"
+            );
+
+
+        localStorage.setItem(
+            "mrsptu-dark-mode",
+            isDark
+                ? "true"
+                : "false"
+        );
+
+
+        themeBtn.textContent =
+            isDark
+                ? "☀"
+                : "☾";
+    }
+);
+
+
+// ============================================================
+// LOAD SAVED DARK MODE
+// ============================================================
+
+(function loadTheme() {
+
+    const saved =
+        localStorage.getItem(
+            "mrsptu-dark-mode"
+        );
+
+
+    if (
+        saved === "true"
+    ) {
+
+        document.body.classList.add(
+            "dark"
+        );
+
+
+        themeBtn.textContent =
+            "☀";
+    }
+
+})();
+
+
+// ============================================================
+// HTML ESCAPE
+// ============================================================
+
+function escapeHTML(
+    value
+) {
+
+    return String(
+        value
+    )
+        .replaceAll(
+            "&",
+            "&amp;"
+        )
+        .replaceAll(
+            "<",
+            "&lt;"
+        )
+        .replaceAll(
+            ">",
+            "&gt;"
+        )
+        .replaceAll(
+            '"',
+            "&quot;"
+        )
+        .replaceAll(
+            "'",
+            "&#039;"
+        );
+}
