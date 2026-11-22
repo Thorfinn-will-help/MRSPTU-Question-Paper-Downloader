@@ -102,6 +102,38 @@ def home():
 
 
 # ============================================================
+# USAGE STATS
+# ============================================================
+
+@app.get("/stats")
+def usage_stats():
+    try:
+        response = (
+            supabase
+            .table("usage_stats")
+            .select("*")
+            .single()
+            .execute()
+        )
+
+        stats = response.data or {}
+
+        return {
+            "total_usage": stats.get("total_usage", 0),
+            "total_searches": stats.get("total_searches", 0),
+            "total_downloads": stats.get("total_downloads", 0),
+        }
+
+    except Exception as error:
+        print("STATS ERROR:", repr(error))
+
+        raise HTTPException(
+            status_code=500,
+            detail="Could not retrieve usage statistics."
+        )
+
+
+# ============================================================
 # SEARCH PAPERS
 # ============================================================
 
@@ -165,6 +197,14 @@ def search_papers(
         )
 
         papers = response.data or []
+
+        # --------------------------------------------------------
+        # RECORD SEARCH
+        # --------------------------------------------------------
+
+        supabase.table("usage_events").insert({
+            "event_type": "search"
+        }).execute()
 
         return {
             "count": len(papers),
@@ -246,6 +286,20 @@ def download_paper(paper_id_number: int):
             status_code=404,
             detail=f"File not found in storage: {error}",
         )
+
+    # --------------------------------------------------------
+    # RECORD SUCCESSFUL DOWNLOAD
+    # --------------------------------------------------------
+
+    try:
+        supabase.table("usage_events").insert({
+            "event_type": "download"
+        }).execute()
+
+    except Exception as error:
+        # Do not break a valid download just because
+        # statistics recording failed.
+        print("DOWNLOAD STATS ERROR:", repr(error))
 
     # --------------------------------------------------------
     # FILE TYPE
@@ -399,6 +453,20 @@ def download_zip(request: ZipRequest):
     # --------------------------------------------------------
 
     zip_buffer.seek(0)
+
+    # --------------------------------------------------------
+    # RECORD SUCCESSFUL ZIP DOWNLOAD
+    # --------------------------------------------------------
+
+    try:
+        supabase.table("usage_events").insert({
+            "event_type": "download"
+        }).execute()
+
+    except Exception as error:
+        # Do not break a valid ZIP download just because
+        # statistics recording failed.
+        print("ZIP DOWNLOAD STATS ERROR:", repr(error))
 
     # --------------------------------------------------------
     # RETURN ZIP
