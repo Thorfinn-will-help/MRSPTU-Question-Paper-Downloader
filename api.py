@@ -107,29 +107,65 @@ def home():
 
 @app.get("/stats")
 def usage_stats():
+    """
+    Return cumulative usage statistics.
+
+    Usage is counted as:
+    - Every successful paper search request
+    - Every successful individual paper download
+    - Every successful ZIP download
+    """
+
     try:
-        response = (
+
+        # --------------------------------------------------------
+        # TOTAL USAGE
+        # --------------------------------------------------------
+
+        total_response = (
             supabase
-            .table("usage_stats")
-            .select("*")
-            .single()
+            .table("usage_events")
+            .select("id", count="exact")
             .execute()
         )
 
-        stats = response.data or {}
+        # --------------------------------------------------------
+        # TOTAL SEARCHES
+        # --------------------------------------------------------
+
+        search_response = (
+            supabase
+            .table("usage_events")
+            .select("id", count="exact")
+            .eq("event_type", "search")
+            .execute()
+        )
+
+        # --------------------------------------------------------
+        # TOTAL DOWNLOADS
+        # --------------------------------------------------------
+
+        download_response = (
+            supabase
+            .table("usage_events")
+            .select("id", count="exact")
+            .eq("event_type", "download")
+            .execute()
+        )
 
         return {
-            "total_usage": stats.get("total_usage", 0),
-            "total_searches": stats.get("total_searches", 0),
-            "total_downloads": stats.get("total_downloads", 0),
+            "total_usage": total_response.count or 0,
+            "total_searches": search_response.count or 0,
+            "total_downloads": download_response.count or 0,
         }
 
     except Exception as error:
+
         print("STATS ERROR:", repr(error))
 
         raise HTTPException(
             status_code=500,
-            detail="Could not retrieve usage statistics."
+            detail=f"Could not retrieve usage statistics: {error}"
         )
 
 
@@ -145,6 +181,7 @@ def search_papers(
     limit: int = Query(default=100, ge=1, le=100),
 ):
     try:
+
         query = (
             supabase
             .table("papers")
@@ -160,7 +197,12 @@ def search_papers(
             )
         )
 
+        # --------------------------------------------------------
+        # SUBJECT CODE
+        # --------------------------------------------------------
+
         if subject_code:
+
             value = (
                 subject_code
                 .strip()
@@ -169,23 +211,34 @@ def search_papers(
                 .upper()
             )
 
-            # Subject codes in the archive are treated as exact
-            # identifiers after removing spaces and hyphens.
             query = query.ilike(
                 "subject_code",
                 value
             )
 
+        # --------------------------------------------------------
+        # YEAR
+        # --------------------------------------------------------
+
         if year:
             query = query.eq("year", year)
 
+        # --------------------------------------------------------
+        # PAPER ID
+        # --------------------------------------------------------
+
         if paper_id:
+
             value = paper_id.strip()
 
             query = query.ilike(
                 "paper_id",
                 value
             )
+
+        # --------------------------------------------------------
+        # EXECUTE SEARCH
+        # --------------------------------------------------------
 
         response = (
             query
@@ -202,9 +255,23 @@ def search_papers(
         # RECORD SEARCH
         # --------------------------------------------------------
 
-        supabase.table("usage_events").insert({
-            "event_type": "search"
-        }).execute()
+        # Statistics must NEVER break an otherwise successful search.
+        try:
+
+            supabase.table("usage_events").insert({
+                "event_type": "search"
+            }).execute()
+
+        except Exception as error:
+
+            print(
+                "SEARCH STATS ERROR:",
+                repr(error)
+            )
+
+        # --------------------------------------------------------
+        # RETURN RESULTS
+        # --------------------------------------------------------
 
         return {
             "count": len(papers),
@@ -213,7 +280,10 @@ def search_papers(
 
     except Exception as error:
 
-        print("SEARCH ERROR:", repr(error))
+        print(
+            "SEARCH ERROR:",
+            repr(error)
+        )
 
         raise HTTPException(
             status_code=500,
@@ -238,6 +308,7 @@ def get_paper(paper_id_number: int):
     )
 
     if response is None or not response.data:
+
         raise HTTPException(
             status_code=404,
             detail="Paper not found."
@@ -253,6 +324,10 @@ def get_paper(paper_id_number: int):
 @app.get("/papers/{paper_id_number}/download")
 def download_paper(paper_id_number: int):
 
+    # --------------------------------------------------------
+    # GET PAPER METADATA
+    # --------------------------------------------------------
+
     response = (
         supabase
         .table("papers")
@@ -263,6 +338,7 @@ def download_paper(paper_id_number: int):
     )
 
     if response is None or not response.data:
+
         raise HTTPException(
             status_code=404,
             detail="Paper not found."
@@ -276,12 +352,14 @@ def download_paper(paper_id_number: int):
     # --------------------------------------------------------
 
     try:
+
         obj = tigris.get_object(
             Bucket=TIGRIS_BUCKET,
             Key=storage_key,
         )
 
     except Exception as error:
+
         raise HTTPException(
             status_code=404,
             detail=f"File not found in storage: {error}",
@@ -291,15 +369,22 @@ def download_paper(paper_id_number: int):
     # RECORD SUCCESSFUL DOWNLOAD
     # --------------------------------------------------------
 
+    # Only count the download if the file was successfully
+    # retrieved from Tigris.
+
     try:
+
         supabase.table("usage_events").insert({
             "event_type": "download"
         }).execute()
 
     except Exception as error:
-        # Do not break a valid download just because
-        # statistics recording failed.
-        print("DOWNLOAD STATS ERROR:", repr(error))
+
+        # Never break a valid download because statistics failed.
+        print(
+            "DOWNLOAD STATS ERROR:",
+            repr(error)
+        )
 
     # --------------------------------------------------------
     # FILE TYPE
@@ -308,15 +393,18 @@ def download_paper(paper_id_number: int):
     file_type = paper["file_type"].lower()
 
     if file_type == "pdf":
+
         content_type = "application/pdf"
 
     elif file_type == "docx":
+
         content_type = (
             "application/vnd.openxmlformats-officedocument."
             "wordprocessingml.document"
         )
 
     else:
+
         content_type = "application/octet-stream"
 
     # --------------------------------------------------------
@@ -348,16 +436,19 @@ def download_zip(request: ZipRequest):
     # --------------------------------------------------------
 
     if not request.paper_ids:
+
         raise HTTPException(
             status_code=400,
             detail="No papers selected."
         )
 
     # Remove duplicate IDs while preserving order
-    paper_ids = list(dict.fromkeys(request.paper_ids))
+    paper_ids = list(
+        dict.fromkeys(request.paper_ids)
+    )
 
     # --------------------------------------------------------
-    # GET PAPER METADATA FROM SUPABASE
+    # GET PAPER METADATA
     # --------------------------------------------------------
 
     response = (
@@ -371,6 +462,7 @@ def download_zip(request: ZipRequest):
     papers = response.data or []
 
     if not papers:
+
         raise HTTPException(
             status_code=404,
             detail="No papers found."
@@ -400,6 +492,7 @@ def download_zip(request: ZipRequest):
             # ------------------------------------------------
 
             try:
+
                 obj = tigris.get_object(
                     Bucket=TIGRIS_BUCKET,
                     Key=storage_key,
@@ -408,11 +501,12 @@ def download_zip(request: ZipRequest):
                 file_data = obj["Body"].read()
 
             except Exception as error:
+
                 raise HTTPException(
                     status_code=404,
                     detail=(
-                        f'Could not retrieve '
-                        f'{original_name}: {error}'
+                        f"Could not retrieve "
+                        f"{original_name}: {error}"
                     ),
                 )
 
@@ -430,7 +524,10 @@ def download_zip(request: ZipRequest):
 
                 counter = 2
 
-                while f"{base}_{counter}{extension}" in used_names:
+                while (
+                    f"{base}_{counter}{extension}"
+                    in used_names
+                ):
                     counter += 1
 
                 zip_name = (
@@ -459,14 +556,19 @@ def download_zip(request: ZipRequest):
     # --------------------------------------------------------
 
     try:
+
         supabase.table("usage_events").insert({
             "event_type": "download"
         }).execute()
 
     except Exception as error:
-        # Do not break a valid ZIP download just because
+
+        # Never break a valid ZIP download because
         # statistics recording failed.
-        print("ZIP DOWNLOAD STATS ERROR:", repr(error))
+        print(
+            "ZIP DOWNLOAD STATS ERROR:",
+            repr(error)
+        )
 
     # --------------------------------------------------------
     # RETURN ZIP
